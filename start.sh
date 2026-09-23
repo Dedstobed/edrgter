@@ -1,1 +1,1 @@
-python burger_bot.py
+python main.py
