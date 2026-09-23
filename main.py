@@ -2,8 +2,6 @@ import os
 
 from telebot import apihelper
 
-os.environ['no_proxy'] = '*'
-apihelper.proxy = {'https': 'http://127.0.0.1:10809'}
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import time
