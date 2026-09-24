@@ -21,11 +21,12 @@ HEADERS = {
 
 stop_flags = {}
 temp_data = {}
+user_states = {}  # Словарь для отслеживания состояний пользователей (вместо next_step)
 
 # ---- referral / storage ----
 DATA_FILE = 'users.json'
 data_lock = asyncio.Lock()
-_users_cache = None  # in-memory cache
+_users_cache = None
 
 async def load_data():
     global _users_cache
@@ -82,6 +83,7 @@ async def ensure_user_record(user_id, from_user=None, referred_by=None):
 
 @bot.message_handler(commands=['start'])
 async def start(message):
+    user_states.pop(message.chat.id, None)
     payload = None
     parts = message.text.split()
     if len(parts) > 1:
@@ -99,6 +101,7 @@ async def profile_command(message):
     await show_profile(message.chat.id, message.from_user.id, message.message_id if message else None)
 
 async def show_main_menu(chat_id):
+    user_states.pop(chat_id, None)
     markup = InlineKeyboardMarkup()
     markup.row(InlineKeyboardButton("🍔 Заказать бургеры", callback_data='start_test'))
     markup.row(InlineKeyboardButton("👤 Профиль", callback_data='profile'))
@@ -123,13 +126,19 @@ async def send_request(url, phone):
 
 @bot.callback_query_handler(func=lambda call: True)
 async def callback_handler(call):
+    # Обязательно гасим часики загрузки на кнопке
+    try:
+        await bot.answer_callback_query(call.id)
+    except Exception:
+        pass
+
     if call.data == 'start_test':
-        msg = await bot.send_message(
+        user_states[call.message.chat.id] = 'waiting_for_phone'
+        await bot.send_message(
             call.message.chat.id,
             "📞 Введите *номер телефона* для заказа:\n\nПример: `79123456789`",
             parse_mode='Markdown'
         )
-        bot.register_next_step_handler(msg, process_phone)
 
     elif call.data == 'info':
         markup = InlineKeyboardMarkup()
@@ -165,12 +174,12 @@ async def callback_handler(call):
             await ask_cycles(call.message, phone)
 
     elif call.data == 'edit_phone':
-        msg = await bot.send_message(
+        user_states[call.message.chat.id] = 'waiting_for_phone'
+        await bot.send_message(
             call.message.chat.id,
             "✏️ Введите *новый номер телефона* (например: `79123456789`):",
             parse_mode='Markdown'
         )
-        bot.register_next_step_handler(msg, process_phone)
 
     elif call.data == 'cancel_delivery':
         stop_flags[call.message.chat.id] = True
@@ -185,38 +194,46 @@ async def callback_handler(call):
     elif call.data == 'profile':
         await show_profile(call.message.chat.id, call.from_user.id, call.message.message_id)
 
-def process_phone(message):
+# Универсальный текстовый обработчик вместо next_step
+@bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'waiting_for_phone')
+async def process_phone_input(message):
     phone = message.text.strip()
     if not phone.isdigit() or len(phone) != 11:
-        asyncio.run_coroutine_threadsafe(
-            bot.send_message(message.chat.id, "❌ Номер некорректный. Пожалуйста, введите 11 цифр (например: 79123456789)"),
-            asyncio.get_event_loop()
+        await bot.send_message(
+            message.chat.id,
+            "❌ Номер некорректный. Пожалуйста, введите ровно 11 цифр (например: `79123456789`):",
+            parse_mode='Markdown'
         )
-        msg = bot.send_message(message.chat.id, "Повторите ввод:") # В telebot register_next_step ожидает синхронного вызова, используем стандартный обход
-        bot.register_next_step_handler(message, process_phone)
         return
 
+    user_states.pop(message.chat.id, None)
     temp_data[message.chat.id] = phone
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("✅ Всё верно", callback_data='confirm_phone'))
     markup.add(InlineKeyboardButton("✏️ Изменить", callback_data='edit_phone'))
 
-    asyncio.run_coroutine_threadsafe(
-        bot.send_message(
-            message.chat.id,
-            f"📱 Вы ввели номер: `{phone}`\n\nВсё правильно?",
-            parse_mode='Markdown',
-            reply_markup=markup
-        ),
-        asyncio.get_event_loop()
+    await bot.send_message(
+        message.chat.id,
+        f"📱 Вы ввели номер: `{phone}`\n\nВсё правильно?",
+        parse_mode='Markdown',
+        reply_markup=markup
     )
 
 async def ask_cycles(message, phone):
-    msg = await bot.send_message(
+    user_states[message.chat.id] = 'waiting_for_cycles'
+    await bot.send_message(
         message.chat.id,
         f"🔢 Сколько циклов запустить? (от 1 до {MAX_CYCLES}):"
     )
-    bot.register_next_step_handler(msg, lambda m: asyncio.run_coroutine_threadsafe(start_test(m, phone), asyncio.get_event_loop()))
+
+@bot.message_handler(func=lambda message: user_states.get(message.chat.id) == 'waiting_for_cycles')
+async def process_cycles_input(message):
+    user_states.pop(message.chat.id, None)
+    phone = temp_data.get(message.chat.id)
+    if not phone:
+        await show_main_menu(message.chat.id)
+        return
+    await start_test(message, phone)
 
 async def start_test(message, phone):
     try:
