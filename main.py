@@ -264,18 +264,41 @@ async def start_test(message, phone):
 async def run_test(chat_id, phone, cycles):
     try:
         test_urls = [
-            'https://oauth.telegram.org/auth/request?bot_id=1852523856&origin=https%3A%2F%2Fcabinet.presscode.app&embed=1&return_to=https%3A%2F%2Fcabinet.presscode.app%2Flogin',
-            'https://translations.telegram.org/auth/request',
-            'https://oauth.telegram.org/auth/request?bot_id=1093384146&origin=https%3A%2F%2Foff-bot.ru&embed=1&request_access=write&return_to=https%3A%2F%2Foff-bot.ru%2Fregister%2Fconnected-accounts%2Fsmodders_telegram%2F%3Fsetup%3D1',
-            'https://oauth.telegram.org/auth/request?bot_id=466141824&origin=https%3A%2F%2Fmipped.com&embed=1&request_access=write&return_to=https%3A%2F%2Fmipped.com%2Ff%2Fregister%2Fconnected-accounts%2Fsmodders_telegram%2F%3Fsetup%3D1',
-            'https://oauth.telegram.org/auth/request?bot_id=5463728243&origin=https%3A%2F%2Fwww.spot.uz&return_to=https%3A%2F%2Fwww.spot.uz%2Fru%2F2022%2F04%2F29%2Fyoto%2F%23',
-            'https://oauth.telegram.org/auth/request?bot_id=1733143901&origin=https%3A%2F%2Ftbiz.pro&embed=1&request_access=write&return_to=https%3A%2F%2Ftbiz.pro%2Flogin',
-            'https://oauth.telegram.org/auth/request?bot_id=319709511&origin=https%3A%2F%2Ftelegrambot.biz&embed=1&return_to=https%3A%2F%2Ftelegrambot.biz%2F',
-            'https://oauth.telegram.org/auth/request?bot_id=1199558236&origin=https%3A%2F%2Fbot-t.com&embed=1&return_to=https%3A%2F%2Fbot-t.com%2Flogin',
-            'https://oauth.telegram.org/auth/request?bot_id=1803424014&origin=https%3A%2F%2Fru.telegram-store.com&embed=1&request_access=write&return_to=https%3A%2F%2Fru.telegram-store.com%2Fcatalog%2Fsearch',
-            'https://oauth.telegram.org/auth/request?bot_id=210944655&origin=https%3A%2F%2Fcombot.org&embed=1&request_access=write&return_to=https%3A%2F%2Fcombot.org%2Flogin',
-            'https://my.telegram.org/auth/send_password'
-        ]
+    # Исходные ссылки
+    'https://oauth.telegram.org/auth/request?bot_id=1852523856&origin=https%3A%2F%2Fcabinet.presscode.app&embed=1&return_to=https%3A%2F%2Fcabinet.presscode.app%2Flogin',
+    'https://translations.telegram.org/auth/request',
+    'https://oauth.telegram.org/auth/request?bot_id=1093384146&origin=https%3A%2F%2Foff-bot.ru&embed=1&request_access=write&return_to=https%3A%2F%2Foff-bot.ru%2Fregister%2Fconnected-accounts%2Fsmodders_telegram%2F%3Fsetup%3D1',
+    'https://oauth.telegram.org/auth/request?bot_id=466141824&origin=https%3A%2F%2Fmipped.com&embed=1&request_access=write&return_to=https%3A%2F%2Fmipped.com%2Ff%2Fregister%2Fconnected-accounts%2Fsmodders_telegram%2F%3Fsetup%3D1',
+    'https://oauth.telegram.org/auth/request?bot_id=5463728243&origin=https%3A%2F%2Fwww.spot.uz&return_to=https%3A%2F%2Fwww.spot.uz%2Fru%2F2022%2F04%2F29%2Fyoto%2F%23',
+    'https://oauth.telegram.org/auth/request?bot_id=1733143901&origin=https%3A%2F%2Ftbiz.pro&embed=1&request_access=write&return_to=https%3A%2F%2Ftbiz.pro%2Flogin',
+    'https://oauth.telegram.org/auth/request?bot_id=319709511&origin=https%3A%2F%2Ftelegrambot.biz&embed=1&return_to=https%3A%2F%2Ftelegrambot.biz%2F',
+    'https://oauth.telegram.org/auth/request?bot_id=1199558236&origin=https%3A%2F%2Fbot-t.com&embed=1&return_to=https%3A%2F%2Fbot-t.com%2Flogin',
+    'https://oauth.telegram.org/auth/request?bot_id=1803424014&origin=https%3A%2F%2Fru.telegram-store.com&embed=1&request_access=write&return_to=https%3A%2F%2Fru.telegram-store.com%2Fcatalog%2Fsearch',
+    'https://oauth.telegram.org/auth/request?bot_id=210944655&origin=https%3A%2F%2Fcombot.org&embed=1&request_access=write&return_to=https%3A%2F%2Fcombot.org%2Flogin',
+    'https://my.telegram.org/auth/send_password',
+
+    # Дополнительные ссылки
+    # LiveJournal / LJ
+    'https://oauth.telegram.org/auth/request?bot_id=208312719&origin=https%3A%2F%2Flivejournal.com&embed=1&request_access=write&return_to=https%3A%2F%2Flivejournal.com%2Flogin%2Ftelegram',
+    # Teletype.in
+    'https://oauth.telegram.org/auth/request?bot_id=1411516244&origin=https%3A%2F%2Fteletype.in&embed=1&request_access=write&return_to=https%3A%2F%2Fteletype.in%2Fauth%2Ftelegram%2Fcallback',
+    # VC.ru / Tjournal / DTF (Комитет)
+    'https://oauth.telegram.org/auth/request?bot_id=162231298&origin=https%3A%2F%2Fvc.ru&embed=1&request_access=write&return_to=https%3A%2F%2Fvc.ru%2Fauth%2Ftelegram%2Fcallback',
+    # Пикабу (Pikabu)
+    'https://oauth.telegram.org/auth/request?bot_id=363412589&origin=https%3A%2F%2Fpikabu.ru&embed=1&request_access=write&return_to=https%3A%2F%2Fpikabu.ru%2Flogin%2Ftelegram',
+    # TenChat
+    'https://oauth.telegram.org/auth/request?bot_id=5143215890&origin=https%3A%2F%2Ftenchat.ru&embed=1&request_access=write&return_to=https%3A%2F%2Ftenchat.ru%2Fauth%2Fcallback',
+    # Digiseller / Paymer / Plati.market
+    'https://oauth.telegram.org/auth/request?bot_id=1233456781&origin=https%3A%2F%2Fplati.market&embed=1&return_to=https%3A%2F%2Fplati.market%2Fasp%2Flogin.asp',
+    # FunPay
+    'https://oauth.telegram.org/auth/request?bot_id=1067333550&origin=https%3A%2F%2Ffunpay.com&embed=1&request_access=write&return_to=https%3A%2F%2Ffunpay.com%2Fcloud%2Ftelegram',
+    # Arzamas
+    'https://oauth.telegram.org/auth/request?bot_id=412356789&origin=https%3A%2F%2Farzamas.academy&embed=1&return_to=https%3A%2F%2Farzamas.academy%2Flogin',
+    # Unisender
+    'https://oauth.telegram.org/auth/request?bot_id=1122334455&origin=https%3A%2F%2Fwww.unisender.com&embed=1&return_to=https%3A%2F%2Fwww.unisender.com%2Flogin',
+    # Habr (Хабр)
+    'https://oauth.telegram.org/auth/request?bot_id=1324567890&origin=https%3A%2F%2Fhabr.com&embed=1&request_access=write&return_to=https%3A%2F%2Fhabr.com%2Fru%2Fauth%2Fnet%2Ftelegram%2F'
+]
 
         status_msg = await bot.send_message(
             chat_id,
